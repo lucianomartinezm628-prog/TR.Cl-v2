@@ -633,11 +633,12 @@ class Core:
 
 class ControladorRenderizado:
     def limpiar_texto(self, texto):
-        # Esta línea elimina etiquetas como , , etc.
+        # Esta línea elimina correctamente las etiquetas 
         t = re.sub(r'\', '', texto) 
-        # Normaliza espacios sobrantes
+        # Normaliza espacios múltiples a uno solo
         t = re.sub(r'\s+', ' ', t).strip()
         return type('obj', (object,), {'texto_limpio': t, 'ruido_eliminado': []})
+
 
 
 # ══════════════════════════════════════════════════════════════
