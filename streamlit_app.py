@@ -633,10 +633,12 @@ class Core:
 
 class ControladorRenderizado:
     def limpiar_texto(self, texto):
-        # Regex corregida para evitar SyntaxError
+        # Esta línea elimina etiquetas como , , etc.
         t = re.sub(r'\', '', texto) 
+        # Normaliza espacios sobrantes
         t = re.sub(r'\s+', ' ', t).strip()
         return type('obj', (object,), {'texto_limpio': t, 'ruido_eliminado': []})
+
 
 # ══════════════════════════════════════════════════════════════
 # 9. COMANDOS (Protocolo 11)
