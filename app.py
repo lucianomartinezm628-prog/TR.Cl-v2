@@ -167,32 +167,86 @@ class GeminiEngine:
 
 # --- NÚCLEO DEL SISTEMA (main logic) ---
 
+# --- BUSCA LA CLASE SistemaTraduccion Y REEMPLAZALA POR ESTA ---
+
 class SistemaTraduccion:
     def __init__(self, api_key, model_name):
         self.engine = GeminiEngine(api_key, model_name)
         self.glosario = GestorGlosario()
         
+    def _sanitizar_gramatica(self, valor_raw):
+        """
+        Función de seguridad: Convierte lo que mande Gemini en un Enum válido.
+        Si falla, devuelve CategoriaGramatical.OTRO en vez de romper la app.
+        """
+        if not valor_raw:
+            return CategoriaGramatical.OTRO
+            
+        valor_limpio = str(valor_raw).upper().strip()
+        
+        # Intentamos mapear directo
+        try:
+            return CategoriaGramatical(valor_limpio)
+        except ValueError:
+            # Si falla, intentamos mapeos comunes de errores de IA
+            mapa_errores = {
+                "NOUN": CategoriaGramatical.SUSTANTIVO,
+                "VERB": CategoriaGramatical.VERBO,
+                "ADJ": CategoriaGramatical.ADJETIVO,
+                "ADP": CategoriaGramatical.PREPOSICION,
+                "PRON": CategoriaGramatical.PRONOMBRE,
+                "CONJ": CategoriaGramatical.CONJUNCION,
+                "DET": CategoriaGramatical.OTRO, # O lo que corresponda
+                "NUM": CategoriaGramatical.ADJETIVO
+            }
+            return mapa_errores.get(valor_limpio, CategoriaGramatical.OTRO)
+
+    def _sanitizar_categoria(self, valor_raw):
+        """Igual que arriba pero para TokenCategoria"""
+        if not valor_raw:
+            return TokenCategoria.NUCLEO
+        
+        valor_limpio = str(valor_raw).upper().strip()
+        try:
+            return TokenCategoria(valor_limpio)
+        except ValueError:
+            return TokenCategoria.NUCLEO # Default seguro
+
     def procesar(self, texto: str) -> TranslationContext:
         ctx = TranslationContext(texto_fuente=texto)
         
-        # 1. Operación AI (Gemini tokeniza y propone)
+        # LOG VISUAL PARA EL USUARIO
+        placeholder = st.empty() 
+        placeholder.info("🔍 P3.F1: Inicializando Matriz y Tokenizando...")
+
+        # 1. Operación AI
         raw_data = self.engine.analizar_texto(texto)
         
-        # 2. Conversión a objetos internos y Validación con Glosario
+        if not raw_data:
+            placeholder.error("❌ Fallo en P4/P5: Gemini no devolvió datos JSON válidos.")
+            return ctx
+
+        placeholder.info("📚 P8.A: Verificando Glosario y Colisiones...")
+        
+        # 2. Conversión y Validación (AHORA CON SEGURIDAD)
         for item in raw_data:
+            # AQUI ESTABA EL ERROR: Usamos las funciones de sanitización ahora
+            cat_segura = self._sanitizar_categoria(item.get('categoria', 'NUCLEO'))
+            gram_segura = self._sanitizar_gramatica(item.get('gramatica', 'OTRO'))
+
             token = TokenData(
                 source=item.get('source', ''),
                 target_propuesto=item.get('target_propuesto', ''),
-                categoria=TokenCategoria(item.get('categoria', 'NUCLEO')),
-                gramatica=CategoriaGramatical(item.get('gramatica', 'OTRO')),
+                categoria=cat_segura,       # <--- USO SEGURO
+                gramatica=gram_segura,      # <--- USO SEGURO
                 raiz_etimologica=item.get('raiz', ''),
                 nota_ai=item.get('explicacion', '')
             )
             
-            # 3. Supervisión Automática (Check Glosario)
             token = self.glosario.registrar_o_validar(token)
             ctx.matriz_tokens.append(token)
             
+        placeholder.success("✅ P10.B: Procesamiento completo. Esperando Custodia P0.")
         ctx.is_processed = True
         return ctx
 # --- INTERFAZ DE USUARIO (Streamlit) ---
