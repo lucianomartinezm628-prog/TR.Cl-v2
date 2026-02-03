@@ -573,8 +573,13 @@ class Core:
 
 class ControladorRenderizado:
     def limpiar_texto(self, texto):
-        t = re.sub(r'\', '', texto) # Limpiar metadatos
+        # CORRECCIÓN: La expresión regular debe ser exacta para no romper el string
+        # Busca patrones como y los elimina
+        t = re.sub(r'\', '', texto) 
+        
+        # Retorna un objeto simple con el texto limpio
         return type('obj', (object,), {'texto_limpio': t, 'ruido_eliminado': []})
+
 
 class CategoriaComando(Enum):
     CONSULTA = auto(); MODIFICACION = auto(); CONTROL = auto(); EXPORTACION = auto(); AYUDA = auto()
