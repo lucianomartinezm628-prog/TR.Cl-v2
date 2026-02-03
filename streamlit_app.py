@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 # ══════════════════════════════════════════════════════════════
-# 1. CONSTANTES Y ENUMS (Protocolo 1)
+# 1. CONSTANTES, ENUMS Y CONFIGURACIÓN (Protocolos 1 y 2)
 # ══════════════════════════════════════════════════════════════
 
 class TokenStatus(Enum):
@@ -81,6 +81,13 @@ class DecisionOrigen(Enum):
     AUTOMATICA = auto()
     INFERIDA = auto()
 
+class TipoElemento(Enum):
+    TITULO = auto()
+    SUBTITULO = auto()
+    CITA = auto()
+    PARRAFO = auto()
+    NORMAL = auto()
+
 JERARQUIA_ETIMOLOGICA = ["LENGUA_FUENTE", "LATINA", "GRIEGA", "ARABE", "TECNICA"]
 WHITELIST_INYECCION = {"hecho", "cosa", "algo", "que"}
 BLACKLIST_INYECCION = {"yo", "tú", "él", "ella", "nosotros", "vosotros", "ellos", "ellas", "me", "te", "se", "nos", "os"}
@@ -93,10 +100,6 @@ SUFIJOS = {
 }
 
 MARGEN_VALORES = {"IDIOM": 6, "COLLISION": 5, "NO_ROOT": 4, "GAP_DERIVATION": 4, "TRANSLITERACION": 3, "MAPEO_1_1_ALT": 2, "MAPEO_1_1_DIRECTO": 1}
-
-# ══════════════════════════════════════════════════════════════
-# 2. CONFIGURACIÓN Y UTILIDADES BASE
-# ══════════════════════════════════════════════════════════════
 
 @dataclass
 class ReglaUsuario:
@@ -128,37 +131,12 @@ class ConfiguracionSistema:
             return True
         return False
 
+# Instancia global de configuración
 config_global = ConfiguracionSistema()
 def obtener_config() -> ConfiguracionSistema: return config_global
 
-class Logger:
-    def info(self, msg): print(f"[INFO] {msg}")
-    def warning(self, msg): print(f"[WARN] {msg}")
-    def error(self, msg): print(f"[ERR] {msg}")
-    def debug(self, msg): pass
-
-class Tokenizador:
-    _PATRON_PALABRAS = re.compile(r'[\w\u0600-\u06FF\u0750-\u077F]+', re.UNICODE)
-    @classmethod
-    def tokenizar(cls, texto: str) -> List[str]:
-        return cls._PATRON_PALABRAS.findall(texto)
-    @classmethod
-    def dividir_oraciones(cls, texto: str) -> List[str]:
-        oraciones = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚأإآ])', texto)
-        return [o.strip() for o in oraciones if o.strip()]
-
-class ClasificadorGramatical:
-    _PREPOSICIONES = {"bi", "li", "fi", "min", "ʿan", "ʿalā", "ilā", "maʿa", "bayna"}
-    _CONJUNCIONES = {"wa", "fa", "aw", "inna", "anna"}
-    @classmethod
-    def clasificar(cls, token: str) -> Tuple[TokenCategoria, CategoriaGramatical]:
-        t = token.lower()
-        if t in cls._PREPOSICIONES: return TokenCategoria.PARTICULA, CategoriaGramatical.PREPOSICION
-        if t in cls._CONJUNCIONES: return TokenCategoria.PARTICULA, CategoriaGramatical.CONJUNCION
-        return TokenCategoria.NUCLEO, CategoriaGramatical.SUSTANTIVO
-
 # ══════════════════════════════════════════════════════════════
-# 3. MODELOS DE DATOS
+# 2. MODELOS DE DATOS (Protocolo 1)
 # ══════════════════════════════════════════════════════════════
 
 @dataclass
@@ -187,6 +165,7 @@ class SlotN:
     token_tgt: Optional[str] = None
     morph_tgt: Optional[MorfologiaTarget] = None
     locucion_id: Optional[str] = None
+    
     def es_bloqueado(self): return self.status == TokenStatus.BLOQUEADO
     def bloquear(self, loc_id): self.status = TokenStatus.BLOQUEADO; self.locucion_id = loc_id
 
@@ -199,6 +178,7 @@ class SlotP:
     status: TokenStatus = TokenStatus.PENDIENTE
     token_tgt: Optional[str] = None
     locucion_id: Optional[str] = None
+    
     def es_bloqueado(self): return self.status == TokenStatus.BLOQUEADO
     def bloquear(self, loc_id): self.status = TokenStatus.BLOQUEADO; self.locucion_id = loc_id
 
@@ -209,6 +189,7 @@ class Locucion:
     componentes: List[str]
     posiciones: List[int]
     tgt: Optional[str] = None
+    
     def contiene_posicion(self, pos: int) -> bool: return pos in self.posiciones
     def primera_posicion(self) -> int: return min(self.posiciones) if self.posiciones else -1
 
@@ -219,6 +200,7 @@ class CeldaMatriz:
     token_tgt: Optional[str] = None
     tipo: str = "normal"
     slot: Any = None
+    
     def es_absorbido(self): return self.tipo == "absorbido"
     def es_nulo(self): return self.tipo == "nulo"
     def es_inyeccion(self): return self.tipo == "inyeccion"
@@ -229,6 +211,7 @@ class MatrizFuente:
         self.slots_n: List[SlotN] = []
         self.slots_p: List[SlotP] = []
         self.locuciones: Dict[str, Locucion] = {}
+    
     def agregar_celda(self, token, pos):
         c = CeldaMatriz(pos, token); self.celdas.append(c); return c
     def agregar_slot_n(self, s): self.slots_n.append(s); self.celdas[s.pos_index].slot = s
@@ -266,6 +249,7 @@ class EntradaGlosario:
     ocurrencias: List[int] = field(default_factory=list)
     etiqueta: Optional[str] = None
     traducciones_por_funcion: Dict[FuncRole, str] = field(default_factory=dict)
+    
     def es_nucleo(self): return self.categoria == TokenCategoria.NUCLEO
     def es_particula(self): return self.categoria == TokenCategoria.PARTICULA
 
@@ -283,9 +267,10 @@ class Consulta:
     token_o_frase: str
     opciones: List[Opcion]
     recomendacion: str
+    
     def formatear(self) -> str:
         ops = "\n".join([f"  {o.letra}) {o.texto}" for o in self.opciones])
-        return f"[CONSULTA {self.numero}]\n{self.contexto}\nITEM: {self.token_o_frase}\nOPCIONES:\n{ops}\nREC: {self.recomendacion}"
+        return f"[CONSULTA {self.numero}]\nCTX: {self.contexto}\nITEM: {self.token_o_frase}\nOPCIONES:\n{ops}\nREC: {self.recomendacion}"
 
 @dataclass
 class Decision:
@@ -313,11 +298,54 @@ class EstadoProceso:
     pausado: bool = False
     def formatear(self):
         prog = (self.oraciones_traducidas/self.total_oraciones)*100 if self.total_oraciones else 0
-        return f"FASE: {self.fase_actual} | PROG: {prog:.1f}% | ERR: {self.errores_criticos} | GLOS: {self.glosario_entradas}"
+        return f"FASE: {self.fase_actual} | PROGRESO: {prog:.1f}% | ERRORES: {self.errores_criticos}"
+
+@dataclass
+class ElementoTexto:
+    contenido: str
+    tipo: TipoElemento
+    posicion: int = 0
+
+@dataclass
+class ResultadoLimpieza:
+    texto_limpio: str
+    elementos: List[ElementoTexto]
+    ruido_eliminado: List[str]
 
 # ══════════════════════════════════════════════════════════════
-# 4. GESTOR DE CONSULTAS
+# 3. UTILIDADES Y GESTOR DE CONSULTAS
 # ══════════════════════════════════════════════════════════════
+
+class Logger:
+    def info(self, msg): print(f"[INFO] {msg}")
+    def warning(self, msg): print(f"[WARN] {msg}")
+    def error(self, msg): print(f"[ERR] {msg}")
+    def debug(self, msg): pass 
+
+class Tokenizador:
+    _PATRON_PALABRAS = re.compile(r'[\w\u0600-\u06FF\u0750-\u077F]+', re.UNICODE)
+    @classmethod
+    def tokenizar(cls, texto: str) -> List[str]:
+        return cls._PATRON_PALABRAS.findall(texto)
+    @classmethod
+    def dividir_oraciones(cls, texto: str) -> List[str]:
+        # Divide por punto seguido de espacio y mayúscula
+        oraciones = re.split(r'(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚأإآ])', texto)
+        return [o.strip() for o in oraciones if o.strip()]
+
+class ClasificadorGramatical:
+    # Versión simplificada para el script unificado
+    _PREPOSICIONES = {"bi", "li", "fi", "min", "ʿan", "ʿalā", "ilā", "maʿa", "bayna"}
+    _CONJUNCIONES = {"wa", "fa", "aw", "inna", "anna"}
+    _PRONOMBRES = {"huwa", "hiya", "hum", "anta", "ana"}
+    
+    @classmethod
+    def clasificar(cls, token: str) -> Tuple[TokenCategoria, CategoriaGramatical]:
+        t = token.lower()
+        if t in cls._PREPOSICIONES: return TokenCategoria.PARTICULA, CategoriaGramatical.PREPOSICION
+        if t in cls._CONJUNCIONES: return TokenCategoria.PARTICULA, CategoriaGramatical.CONJUNCION
+        if t in cls._PRONOMBRES: return TokenCategoria.PARTICULA, CategoriaGramatical.PRONOMBRE
+        return TokenCategoria.NUCLEO, CategoriaGramatical.SUSTANTIVO
 
 class GestorConsultas:
     def __init__(self):
@@ -337,7 +365,7 @@ class GestorConsultas:
     def formatear_consultas_bloque(self):
         return "\n".join([c.formatear() for c in self._consultas]) if self._consultas else "No hay consultas."
     def formatear_historial(self, filtro=None):
-        return "\n".join([f"{d.decision} ({d.origen.name})" for d in self._decisiones]) if self._decisiones else "Sin historial."
+        return "\n".join([f"{d.decision} ({d.origen.name}) ctx:{d.contexto}" for d in self._decisiones]) if self._decisiones else "Sin historial."
     def aplicar_recomendaciones_pendientes(self):
         for c in self._consultas:
             self._decisiones.append(Decision(c.codigo, c.contexto, [], c.recomendacion, DecisionOrigen.AUTOMATICA))
@@ -345,34 +373,9 @@ class GestorConsultas:
 
 _gestor_consultas = GestorConsultas()
 def obtener_gestor_consultas(): return _gestor_consultas
-# ══════════════════════════════════════════════════════════════
-# 5. FORMACIÓN LÉXICA Y TRANSLITERACIÓN (Protocolo 9)
-# ══════════════════════════════════════════════════════════════
-
-class SistemaTransliteracion:
-    _MAPA = {
-        'ء': 'ʾ', 'ا': 'ā', 'ب': 'b', 'ت': 't', 'ث': 'ṯ', 'ج': 'ǧ', 'ح': 'ḥ', 'خ': 'ḫ',
-        'د': 'd', 'ذ': 'ḏ', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'š', 'ص': 'ṣ', 'ض': 'ḍ',
-        'ط': 'ṭ', 'ظ': 'ẓ', 'ع': 'ʿ', 'غ': 'ġ', 'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l',
-        'م': 'm', 'ن': 'n', 'ه': 'h', 'و': 'w', 'ي': 'y', 'ة': 'a', 'ى': 'ā'
-    }
-    def transliterar(self, texto: str) -> str:
-        return ''.join([self._MAPA.get(c, c) for c in texto])
-
-_transliterador = SistemaTransliteracion()
-
-class GeneradorNeologismos:
-    @staticmethod
-    def radical(token, cat):
-        raiz = _transliterador.transliterar(token).rstrip("-")
-        sufijo = "-ado" # Simplificado
-        return raiz + sufijo
-    @staticmethod
-    def derivativo(raiz_es, cat):
-        return raiz_es + "-ado"
 
 # ══════════════════════════════════════════════════════════════
-# 6. GLOSARIO (Protocolo 8)
+# 4. GLOSARIO (Protocolo 8)
 # ══════════════════════════════════════════════════════════════
 
 class GlosarioError(Exception): pass
@@ -386,8 +389,8 @@ class Glosario:
         self._loc_counter = 0
 
     def fase_a_procesar(self, texto: str, tokens_clasificados: List[Tuple]):
-        # Detección simplificada de locuciones (Stub)
-        # Registro
+        # A1. Detección (Simplificado)
+        # A3. Registro
         for idx, (token, cat, cat_gram) in enumerate(tokens_clasificados):
             if token not in self._entradas:
                 self._entradas[token] = EntradaGlosario(token_src=token, categoria=cat, ocurrencias=[idx])
@@ -400,16 +403,20 @@ class Glosario:
         return True
 
     def fase_b_verificar_bloqueo(self, token, pos):
-        # Stub para verificación de locuciones
+        # Devuelve ID si el token es parte de una locución registrada
+        for loc_id, loc in self._locuciones.items():
+            if token in loc.componentes:
+                return loc_id
         return None
 
     def fase_b_asignar(self, token, tgt, margen=1, etiqueta=None, func_role=None):
         entrada = self._entradas.get(token)
         if not entrada: return False
         
+        # Validación estricta de sinonimia en núcleos (salvo forzado usuario)
         if entrada.es_nucleo() and entrada.token_tgt and entrada.token_tgt != tgt:
              if entrada.etiqueta != "FORZADO_USUARIO":
-                 # En producción aquí iría un raise SinonimiaError
+                 # En producción aquí se lanzaría SinonimiaError
                  pass 
         
         entrada.token_tgt = tgt
@@ -449,23 +456,57 @@ class Glosario:
         self._loc_counter += 1
         loc = Locucion(f"LOC_{self._loc_counter:04d}", src, componentes, posiciones, tgt)
         self._locuciones[loc.id] = loc
+        # Bloquear componentes
+        for c in componentes:
+            if c in self._entradas: self._entradas[c].status = TokenStatus.BLOQUEADO
         return loc
 
     def formatear_glosario(self):
-        if not self._entradas: return "Vacío"
-        return "\n".join([f"{k} -> {v.token_tgt or '[PEND]'}" for k,v in sorted(self._entradas.items())])
+        if not self._entradas: return "Glosario vacío."
+        return "\n".join([f"{k:<15} -> {v.token_tgt or '[PENDIENTE]'}" for k,v in sorted(self._entradas.items())])
+        
     def formatear_locuciones(self):
+        if not self._locuciones: return "No hay locuciones."
         return "\n".join([f"{l.src} -> {l.tgt}" for l in self._locuciones.values()])
-    def formatear_alternativas(self): return "N/A"
-    
+        
+    def formatear_alternativas(self):
+        alt = [e for e in self._entradas.values() if e.margen >= 4]
+        return "\n".join([f"{e.token_src}: {e.token_tgt} ({e.etiqueta})" for e in alt]) if alt else "Sin alternativas complejas."
+
+    # Exportación
     def exportar_json(self):
-        return json.dumps({k: v.token_tgt for k,v in self._entradas.items()}, indent=2, ensure_ascii=False)
+        return json.dumps({k: {"tgt": v.token_tgt, "cat": v.categoria.name} for k,v in self._entradas.items()}, indent=2)
     def exportar_csv(self):
         return "token,traduccion\n" + "\n".join([f"{k},{v.token_tgt}" for k,v in self._entradas.items()])
     def exportar_txt(self): return self.formatear_glosario()
 
 # ══════════════════════════════════════════════════════════════
-# 7. PROCESADORES (Núcleos, Partículas, Casos, Reparación)
+# 5. FORMACIÓN LÉXICA Y TRANSLITERACIÓN (Protocolo 9)
+# ══════════════════════════════════════════════════════════════
+
+class SistemaTransliteracion:
+    _MAPA = {
+        'ء': 'ʾ', 'ا': 'ā', 'ب': 'b', 'ت': 't', 'ث': 'ṯ', 'ج': 'ǧ', 'ح': 'ḥ', 'خ': 'ḫ',
+        'د': 'd', 'ذ': 'ḏ', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'š', 'ص': 'ṣ', 'ض': 'ḍ',
+        'ط': 'ṭ', 'ظ': 'ẓ', 'ع': 'ʿ', 'غ': 'ġ', 'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l',
+        'م': 'm', 'ن': 'n', 'ه': 'h', 'و': 'w', 'ي': 'y', 'ة': 'a', 'ى': 'ā'
+    }
+    def transliterar(self, texto: str) -> str:
+        return ''.join([self._MAPA.get(c, c) for c in texto])
+
+_transliterador = SistemaTransliteracion()
+
+class GeneradorNeologismos:
+    @staticmethod
+    def radical(token, cat):
+        raiz = _transliterador.transliterar(token).rstrip("-")
+        return raiz + "-ado" # Simplificado
+    @staticmethod
+    def derivativo(raiz_es, cat):
+        return raiz_es + "-ado"
+
+# ══════════════════════════════════════════════════════════════
+# 6. PROCESADORES (Nucleos, Partículas, Reparación)
 # ══════════════════════════════════════════════════════════════
 
 class ProcesadorCasosDificiles:
@@ -475,16 +516,17 @@ class ProcesadorCasosDificiles:
         
         if reason == Reason.NO_ROOT:
             n_base = GeneradorNeologismos.radical(token, slot_n.cat_src)
-        elif reason == Reason.COLLISION and candidatos:
-            n_base = candidatos[0].termino # Simplificado
-        
-        return {"n_base": n_base, "reason": reason, "exito": True, "requiere_consulta": False}
+        elif reason == Reason.IDIOM:
+            # Lógica básica para locución
+            n_base = _transliterador.transliterar(token)
+            
+        return {"n_base": n_base, "reason": reason, "exito": True}
 
 class ProcesadorNucleos:
     def __init__(self):
         self.p6 = ProcesadorCasosDificiles()
-        # Mock DB
-        self.etimologia = {"kitab": "libro", "qalb": "corazón", "aql": "intelecto"}
+        # Mock DB etimológica
+        self.etimologia = {"kitab": "libro", "qalb": "corazón", "aql": "intelecto", "ilm": "ciencia"}
 
     def set_procesador_casos_dificiles(self, p): self.p6 = p
 
@@ -506,16 +548,17 @@ class ProcesadorNucleos:
 
 class ProcesadorParticulas:
     def procesar(self, slot_p, mtx_s, glosario):
-        dic = {"wa": "y", "fi": "en", "min": "de", "ala": "sobre", "bi": "con"}
+        dic = {"wa": "y", "fi": "en", "min": "de", "ala": "sobre", "bi": "con", "al": "el"}
         tgt = dic.get(slot_p.token_src.lower(), slot_p.token_src)
         return {"candidatos": [tgt]}
 
 class ReparadorSintactico:
     def reparar(self, mtx_t, pos):
-        # Stub: Implementar lógica de inyección/puntuación aquí
+        # Implementación Stub (P7)
         pass
+
 # ══════════════════════════════════════════════════════════════
-# 8. CORE (Protocolo 3)
+# 7. CORE (Protocolo 3)
 # ══════════════════════════════════════════════════════════════
 
 @dataclass
@@ -543,20 +586,37 @@ class Core:
         
         # F2. Núcleos
         for slot_n in mtx_s.slots_n:
+            if slot_n.es_bloqueado(): 
+                self.mtx_t.celdas[slot_n.pos_index].tipo = "locucion"
+                continue # Gestionado por locución
+            
             res = self.proc_nucleos.procesar(slot_n, self.glosario)
             if res.get("restart"): # Guardar en glosario si fue neologismo
-                self.glosario.fase_b_asignar(slot_n.token_src, res["token_tgt"])
+                self.glosario.fase_b_asignar(slot_n.token_src, res["token_tgt"], etiqueta="AUTO_NEOLOGISMO")
             slot_n.token_tgt = res.get("token_tgt")
 
         # F3. Mapeo
         for i, celda_s in enumerate(mtx_s.celdas):
             celda_t = self.mtx_t.celdas[i]
             celda_t.token_src = celda_s.token_src
+            
+            # Gestión Locuciones
+            loc = mtx_s.obtener_locucion_en_pos(i)
+            if loc:
+                if i == loc.primera_posicion():
+                    celda_t.token_tgt = loc.tgt
+                    celda_t.tipo = "locucion"
+                else:
+                    self.mtx_t.marcar_absorbido(i)
+                continue
+
+            # Gestión Normal
             if celda_s.slot and isinstance(celda_s.slot, SlotN):
                 celda_t.token_tgt = celda_s.slot.token_tgt
             
         # F4. Partículas
         for slot_p in mtx_s.slots_p:
+            if slot_p.es_bloqueado(): continue
             cands = self.proc_particulas.procesar(slot_p, mtx_s, self.glosario)["candidatos"]
             self.mtx_t.celdas[slot_p.pos_index].token_tgt = cands[0]
 
@@ -568,18 +628,19 @@ class Core:
         return " ".join([c.token_tgt or f"[{c.token_src}]" for c in tgt.celdas if not c.es_absorbido()])
 
 # ══════════════════════════════════════════════════════════════
-# 9. RENDERIZADO Y COMANDOS (Protocolos 10 y 11)
+# 8. RENDERIZADO (Protocolo 10)
 # ══════════════════════════════════════════════════════════════
 
 class ControladorRenderizado:
     def limpiar_texto(self, texto):
-        # CORRECCIÓN: La expresión regular debe ser exacta para no romper el string
-        # Busca patrones como y los elimina
+        # Regex corregida para evitar SyntaxError
         t = re.sub(r'\', '', texto) 
-        
-        # Retorna un objeto simple con el texto limpio
+        t = re.sub(r'\s+', ' ', t).strip()
         return type('obj', (object,), {'texto_limpio': t, 'ruido_eliminado': []})
 
+# ══════════════════════════════════════════════════════════════
+# 9. COMANDOS (Protocolo 11)
+# ══════════════════════════════════════════════════════════════
 
 class CategoriaComando(Enum):
     CONSULTA = auto(); MODIFICACION = auto(); CONTROL = auto(); EXPORTACION = auto(); AYUDA = auto()
@@ -587,6 +648,26 @@ class CategoriaComando(Enum):
 @dataclass
 class ResultadoComando:
     exito: bool; mensaje: str; datos: Any = None; requiere_confirmacion: bool = False
+
+@dataclass
+class DefinicionComando:
+    nombre: str; aliases: List[str]; categoria: CategoriaComando; descripcion: str; uso: str; ejemplo: str
+
+# Diccionario Completo de Comandos
+COMANDOS = {
+    "GLOSARIO": DefinicionComando("GLOSARIO", ["glosario", "g"], CategoriaComando.CONSULTA, "Ver glosario", "[GLOSARIO]", "[GLOSARIO]"),
+    "LOCUCIONES": DefinicionComando("LOCUCIONES", ["locuciones"], CategoriaComando.CONSULTA, "Ver locuciones", "[LOCUCIONES]", "[LOCUCIONES]"),
+    "ACTUALIZA": DefinicionComando("ACTUALIZA", ["actualiza"], CategoriaComando.MODIFICACION, "Modificar token", "[ACTUALIZA x=y]", "[ACTUALIZA nafs=espiritu]"),
+    "AÑADE": DefinicionComando("AÑADE", ["añade"], CategoriaComando.MODIFICACION, "Añadir token", "[AÑADE x=y]", "[AÑADE qalb=corazon]"),
+    "AÑADE_LOCUCION": DefinicionComando("AÑADE LOCUCION", ["add loc"], CategoriaComando.MODIFICACION, "Añadir locución", "[AÑADE LOCUCION x=y]", "..."),
+    "ELIMINA": DefinicionComando("ELIMINA", ["elimina"], CategoriaComando.MODIFICACION, "Eliminar token", "[ELIMINA x]", "[ELIMINA nafs]"),
+    "PAUSA": DefinicionComando("PAUSA", ["pausa"], CategoriaComando.CONTROL, "Pausar", "[PAUSA]", "[PAUSA]"),
+    "CONTINUAR": DefinicionComando("CONTINUAR", ["continuar"], CategoriaComando.CONTROL, "Continuar", "[CONTINUAR]", "[CONTINUAR]"),
+    "REINICIAR": DefinicionComando("REINICIAR", ["reiniciar"], CategoriaComando.CONTROL, "Reiniciar sistema", "[REINICIAR]", "[REINICIAR]"),
+    "AYUDA": DefinicionComando("AYUDA", ["ayuda", "?"], CategoriaComando.AYUDA, "Ayuda", "[AYUDA]", "[AYUDA]"),
+    "ESTADO": DefinicionComando("ESTADO", ["estado"], CategoriaComando.CONSULTA, "Ver estado", "[ESTADO]", "[ESTADO]"),
+    "EXPORTAR_GLOSARIO": DefinicionComando("EXPORTAR GLOSARIO", ["exportar glosario"], CategoriaComando.EXPORTACION, "Exportar", "...", "...")
+}
 
 class ProcesadorComandos:
     def __init__(self, glosario, config, estado):
@@ -597,46 +678,76 @@ class ProcesadorComandos:
         self._confirmacion = None
 
     def set_callback(self, cmd, cb): self._callbacks[cmd.upper()] = cb
+    def set_glosario(self, g): self.glosario = g
 
     def procesar(self, entrada):
         entrada = entrada.strip()
         if self._confirmacion: return self._procesar_confirmacion(entrada)
         
         parts = entrada.strip("[]").split(" ", 1)
-        cmd = parts[0].upper()
+        cmd_raw = parts[0].upper()
         args = parts[1] if len(parts) > 1 else ""
         
+        # Mapeo de aliases
+        cmd = cmd_raw
+        for k, v in COMANDOS.items():
+            if cmd_raw == k or cmd_raw.lower() in v.aliases:
+                cmd = k; break
+
         if cmd == "GLOSARIO": return ResultadoComando(True, self.glosario.formatear_glosario())
-        if cmd == "AYUDA": return ResultadoComando(True, "Comandos: GLOSARIO, ACTUALIZA, PAUSA, REINICIAR...")
+        if cmd == "LOCUCIONES": return ResultadoComando(True, self.glosario.formatear_locuciones())
         if cmd == "ESTADO": return ResultadoComando(True, self.estado.formatear())
+        if cmd == "AYUDA": return ResultadoComando(True, ", ".join(COMANDOS.keys()))
         
         if cmd == "ACTUALIZA":
             if "=" not in args: return ResultadoComando(False, "Uso: ACTUALIZA token = valor")
             t, v = map(str.strip, args.split("=", 1))
             self._confirmacion = lambda: self.glosario.actualizar_entrada(t, v) and ResultadoComando(True, "Actualizado")
             return ResultadoComando(True, f"¿Cambiar {t} a {v}?", requiere_confirmacion=True)
+
+        if cmd == "AÑADE":
+            if "=" not in args: return ResultadoComando(False, "Uso: AÑADE token = valor")
+            t, v = map(str.strip, args.split("=", 1))
+            if self.glosario.agregar_entrada(t, TokenCategoria.NUCLEO, v):
+                return ResultadoComando(True, f"Añadido: {t} -> {v}")
+            return ResultadoComando(False, "Token ya existe")
+            
+        if cmd == "AÑADE_LOCUCION":
+            if "=" not in args: return ResultadoComando(False, "Uso: AÑADE LOCUCION src = valor")
+            s, t = map(str.strip, args.split("=", 1))
+            comps = s.replace("-", " ").split()
+            self.glosario.agregar_locucion(s, comps, [], t)
+            return ResultadoComando(True, f"Locución añadida: {s}")
+
+        if cmd == "ELIMINA":
+            t = args.strip()
+            self._confirmacion = lambda: self.glosario.eliminar_entrada(t) and ResultadoComando(True, "Eliminado")
+            return ResultadoComando(True, f"¿Eliminar {t}?", requiere_confirmacion=True)
             
         if cmd == "PAUSA": self._callbacks.get("PAUSA", lambda: None)(); return ResultadoComando(True, "Pausado")
         if cmd == "CONTINUAR": self._callbacks.get("CONTINUAR", lambda: None)(); return ResultadoComando(True, "Continuando")
         if cmd == "REINICIAR":
             self._confirmacion = lambda: self._callbacks.get("REINICIAR", lambda: None)() or ResultadoComando(True, "Reiniciado")
             return ResultadoComando(True, "¿Reiniciar sistema?", requiere_confirmacion=True)
+            
+        if cmd == "EXPORTAR_GLOSARIO":
+            return ResultadoComando(True, self.glosario.exportar_json())
 
         return ResultadoComando(False, "Comando desconocido")
 
     def _procesar_confirmacion(self, txt):
-        if txt.lower() in ["si", "s", "yes"]:
+        if txt.lower() in ["si", "s", "yes", "y"]:
             cb = self._confirmacion; self._confirmacion = None; return cb()
         self._confirmacion = None; return ResultadoComando(True, "Cancelado")
 
 _procesador_comandos = None
-def obtener_procesador_comandos(g, c, e):
+def obtener_procesador_comandos(g=None, c=None, e=None):
     global _procesador_comandos
-    if not _procesador_comandos: _procesador_comandos = ProcesadorComandos(g, c, e)
+    if not _procesador_comandos and g: _procesador_comandos = ProcesadorComandos(g, c, e)
     return _procesador_comandos
 
 # ══════════════════════════════════════════════════════════════
-# 10. SISTEMA PRINCIPAL (Main)
+# 10. ORQUESTADOR Y MAIN
 # ══════════════════════════════════════════════════════════════
 
 class SistemaTraduccion:
@@ -649,18 +760,24 @@ class SistemaTraduccion:
         self.gestor_consultas = obtener_gestor_consultas()
         
         # Procesadores
-        self.core.set_procesador_nucleos(ProcesadorNucleos())
+        self.proc_nucleos = ProcesadorNucleos()
+        self.proc_nucleos.set_procesador_casos_dificiles(ProcesadorCasosDificiles())
+        self.core.set_procesador_nucleos(self.proc_nucleos)
         self.core.set_procesador_particulas(ProcesadorParticulas())
         self.core.set_reparador(ReparadorSintactico())
         
         # Comandos
         self.proc_comandos = obtener_procesador_comandos(self.glosario, self.config, self.estado)
+        self._configurar_callbacks()
+
+    def _configurar_callbacks(self):
         self.proc_comandos.set_callback("PAUSA", lambda: setattr(self.estado, 'pausado', True))
         self.proc_comandos.set_callback("CONTINUAR", lambda: setattr(self.estado, 'pausado', False))
         self.proc_comandos.set_callback("REINICIAR", self._reiniciar)
 
     def _reiniciar(self):
-        self.__init__() # Reset completo
+        print("Reiniciando sistema...")
+        self.__init__()
 
     def traducir(self, texto):
         if self.estado.pausado: return "[PAUSADO]"
@@ -669,7 +786,7 @@ class SistemaTraduccion:
         oraciones = Tokenizador.dividir_oraciones(limpio)
         self.estado.total_oraciones = len(oraciones)
         
-        # Registro
+        # P8.A: Análisis Léxico y Registro
         all_tokens = []
         for o in oraciones:
             for t in Tokenizador.tokenizar(o):
@@ -678,7 +795,7 @@ class SistemaTraduccion:
         self.glosario.fase_a_procesar(limpio, all_tokens)
         self.estado.glosario_entradas = len(self.glosario._entradas)
 
-        # Traducción
+        # P3: Traducción Core
         resultados = []
         for i, o in enumerate(oraciones):
             self.estado.oraciones_traducidas = i + 1
@@ -691,6 +808,12 @@ class SistemaTraduccion:
                 if cat == TokenCategoria.NUCLEO: mtx_s.agregar_slot_n(SlotN(t, gram, k))
                 else: mtx_s.agregar_slot_p(SlotP(t, gram, k))
             
+            # Verificar locuciones en la oración
+            for loc in self.glosario.obtener_locuciones().values():
+                # Lógica simple de coincidencia en texto
+                if loc.src in o: 
+                    mtx_s.agregar_locucion(loc)
+
             res = self.core.procesar_oracion(mtx_s)
             resultados.append(self.core.serializar_resultado(res.mtx_t))
             
@@ -701,8 +824,11 @@ class SistemaTraduccion:
 
 def main():
     sistema = SistemaTraduccion()
-    print("=== SISTEMA DE TRADUCCIÓN ISOMÓRFICA (OPTIMIZADO) ===")
-    print("Escribe texto para traducir o [COMANDO] (ej: [AYUDA]). 'salir' para terminar.\n")
+    print("╔══════════════════════════════════════════════════╗")
+    print("║   SISTEMA DE TRADUCCIÓN ISOMÓRFICA (PYTHON)      ║")
+    print("╚══════════════════════════════════════════════════╝")
+    print("Modo interactivo. Escriba texto para traducir o [COMANDO].")
+    print("Comandos útiles: [AYUDA], [GLOSARIO], [ESTADO], [SALIR]\n")
     
     while True:
         try:
@@ -710,12 +836,16 @@ def main():
             if not inp: continue
             if inp.lower() in ["salir", "exit"]: break
             
-            if inp.startswith("[") or inp.isupper():
+            if inp.startswith("[") or (inp.split()[0].upper() in COMANDOS):
                 print(sistema.procesar_comando(inp))
             else:
-                print(f"\nOUT: {sistema.traducir(inp)}\n")
-        except KeyboardInterrupt: break
-        except Exception as e: print(f"ERROR: {e}")
+                out = sistema.traducir(inp)
+                print(f"\nRESULTADO:\n{out}\n")
+        except KeyboardInterrupt:
+            print("\nSaliendo...")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
